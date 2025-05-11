@@ -387,6 +387,8 @@ services:
       - "5432:5432"
     volumes:
       - db_volume:/var/lib/postgresql/data
+      # Mount the initialization script
+      - ./init_scripts/init_andean_db.sql:/docker-entrypoint-initdb.d/init_andean_db.sql
 
   # This container name cannot have an underscore in it due to Vespa expectations of the URL
   index:
