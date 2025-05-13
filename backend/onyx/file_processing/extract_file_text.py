@@ -25,6 +25,9 @@ from fastapi import UploadFile
 from PIL import Image
 from pypdf import PdfReader
 from pypdf.errors import PdfStreamError
+from google import genai
+from google.genai import types
+from dotenv import load_dotenv
 
 from onyx.configs.constants import FileOrigin
 from onyx.configs.constants import ONYX_METADATA_FILENAME
@@ -35,6 +38,7 @@ from onyx.file_store.file_store import FileStore
 from onyx.utils.logger import setup_logger
 
 logger = setup_logger()
+load_dotenv('../../.env')
 
 # NOTE(rkuo): Unify this with upload_files_for_chat and file_valiation.py
 TEXT_SECTION_SEPARATOR = "\n\n"
@@ -235,6 +239,57 @@ def pdf_to_text(file: IO[Any], pdf_pass: str | None = None) -> str:
     text, _, _ = read_pdf_file(file, pdf_pass)
     return text
 
+gemini = genai.Client(api_key=os.getenv('GOOGLE_API_KEY'))
+def get_text_ocr(pdf_buffer):
+    response = gemini.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=[
+            types.Part.from_bytes(
+                data=pdf_buffer.getvalue(),
+                mime_type='application/pdf',
+            ),
+            """
+            You are an expert AI assistant specializing in reading PDF files.
+            The PDF file I gave you is most likely scanned, so it's not searchable.
+            Please use OCR to extract the text from the PDF file. Return the text exactly as it is in the PDF.
+            """
+        ],
+    )
+
+    return response.text
+
+def is_scanned_pdf(extracted_text, pdf_buffer):
+    """
+    Determine if a PDF is likely scanned (non-searchable) based on text extraction results.
+    
+    Returns True if PDF appears to be scanned, False otherwise.
+    """
+    # Check 1: Is there almost no text despite the PDF having pages?
+    pdf_buffer.seek(0)
+    pdf_reader = PdfReader(pdf_buffer)
+    num_pages = len(pdf_reader.pages)
+    
+    # Average characters per page for a text PDF (this threshold can be adjusted)
+    chars_per_page = len(extracted_text) / max(num_pages, 1)
+    
+    # Check 2: Very low character count per page suggests a scanned PDF
+    if chars_per_page < 100:  # Arbitrary threshold, adjust based on your documents
+        return True
+    
+    # Check 3: Look for patterns typical in OCR errors or missing text
+    # If text has very few spaces or punctuation relative to its length, it might be poor quality extraction
+    if len(extracted_text) > 0:
+        space_ratio = extracted_text.count(' ') / len(extracted_text)
+        if space_ratio < 0.05:  # Normal text typically has more spaces
+            return True
+    
+    # Additional check: Examine if PDF has mostly images
+    images_count = sum(len(page.images) for page in pdf_reader.pages)
+    if images_count >= num_pages and chars_per_page < 500:
+        return True
+        
+    return False
+
 
 def read_pdf_file(
     file: IO[Any], pdf_pass: str | None = None, extract_images: bool = False
@@ -288,6 +343,10 @@ def read_pdf_file(
                         f"{image.format.lower() if image.format else 'png'}"
                     )
                     extracted_images.append((img_bytes, image_name))
+
+        if is_scanned_pdf(text, file):
+            logger.info("PDF is scanned, using Gemini OCR to extract text")
+            text = get_text_ocr(file)
 
         return text, metadata, extracted_images
 
