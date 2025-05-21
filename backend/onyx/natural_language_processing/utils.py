@@ -97,6 +97,34 @@ class HuggingFaceTokenizer(BaseTokenizer):
         return self.encoder.decode(tokens)
 
 
+class OpenAITokenizer(BaseTokenizer):
+    def __init__(self, model_name: str):
+        self._delegate = TiktokenTokenizer(model_name)
+
+    def encode(self, string: str) -> list[int]:
+        return self._delegate.encode(string)
+
+    def tokenize(self, string: str) -> list[str]:
+        return self._delegate.tokenize(string)
+
+    def decode(self, tokens: list[int]) -> str:
+        return self._delegate.decode(tokens)
+
+
+class CohereTokenizer(BaseTokenizer):
+    def __init__(self, model_name: str):
+        self._delegate = HuggingFaceTokenizer(model_name)
+
+    def encode(self, string: str) -> list[int]:
+        return self._delegate.encode(string)
+
+    def tokenize(self, string: str) -> list[str]:
+        return self._delegate.tokenize(string)
+
+    def decode(self, tokens: list[int]) -> str:
+        return self._delegate.decode(tokens)
+
+
 _TOKENIZER_CACHE: dict[tuple[EmbeddingProvider | None, str | None], BaseTokenizer] = {}
 
 
@@ -153,21 +181,59 @@ def _try_initialize_tokenizer(
     return None
 
 
-_DEFAULT_TOKENIZER: BaseTokenizer = HuggingFaceTokenizer(DOCUMENT_ENCODER_MODEL)
+# This will be used by get_tokenizer to determine the actual provider.
+DOCUMENT_ENCODER_MODEL_FROM_CONFIG = DOCUMENT_ENCODER_MODEL
+
+# Global default tokenizer, initialized lazily and safely.
+_DEFAULT_TOKENIZER: BaseTokenizer | None = None
+_DEFAULT_TOKENIZER_MODEL_NAME: str | None = None
 
 
 def get_tokenizer(
-    model_name: str | None, provider_type: EmbeddingProvider | str | None
+    model_name: str,
+    provider_type: EmbeddingProvider | None = None,
 ) -> BaseTokenizer:
-    if isinstance(provider_type, str):
+    global _DEFAULT_TOKENIZER, _DEFAULT_TOKENIZER_MODEL_NAME
+
+    # 1. Explicit Provider Handling (Preferred)
+    if provider_type == EmbeddingProvider.OPENAI:
+        return OpenAITokenizer(model_name=model_name)
+    if provider_type == EmbeddingProvider.COHERE:
+        return CohereTokenizer(model_name=model_name)
+    # Add other explicit provider checks here if necessary
+
+    # 2. Model Name Based Heuristics (if provider_type is None)
+    if provider_type is None:
+        if model_name.startswith("text-embedding-"):  # OpenAI
+            return OpenAITokenizer(model_name=model_name)
+        if model_name.startswith("embed-"):  # Cohere (basic check)
+            return CohereTokenizer(model_name=model_name)
+        # Add other model_name based heuristics here
+
+    # 3. Fallback to HuggingFace Tokenizer (_DEFAULT_TOKENIZER logic)
+    # This path is taken if provider_type is None or an unhandled/HF provider,
+    # AND model_name heuristics didn't match.
+    # We assume model_name at this point *should* be a HuggingFace model.
+    
+    # If _DEFAULT_TOKENIZER is not initialized, or is for a different model
+    if _DEFAULT_TOKENIZER is None or _DEFAULT_TOKENIZER_MODEL_NAME != model_name:
         try:
-            provider_type = EmbeddingProvider(provider_type)
-        except ValueError:
-            logger.debug(
-                f"Invalid provider_type '{provider_type}'. Falling back to default tokenizer."
-            )
-            return _DEFAULT_TOKENIZER
-    return _check_tokenizer_cache(provider_type, model_name)
+            logger.debug(f"Initializing/Re-initializing default HuggingFace tokenizer for: {model_name}")
+            _DEFAULT_TOKENIZER = HuggingFaceTokenizer(model_name)
+            _DEFAULT_TOKENIZER_MODEL_NAME = model_name
+        except Exception as e:
+            logger.error(f"Failed to initialize HuggingFace tokenizer for '{model_name}'. Error: {e}")
+            # If this fails, it's a critical error for this path.
+            # Consider what the true 'system default safe' HF tokenizer should be if model_name itself fails.
+            # Perhaps DEFAULT_DOCUMENT_ENCODER_MODEL from model_configs.py (i.e., Nomic)
+            # could be a final fallback if model_name is not a valid HF model.
+            # For now, re-raise.
+            raise RuntimeError(
+                f"Failed to initialize HuggingFace tokenizer for the model: '{model_name}'. "
+                "Ensure it's a valid HuggingFace model identifier if no specific provider is set."
+            ) from e
+            
+    return _DEFAULT_TOKENIZER
 
 
 def tokenizer_trim_content(

@@ -119,7 +119,13 @@ from shared_configs.configs import POSTGRES_DEFAULT_SCHEMA
 from shared_configs.configs import SENTRY_DSN
 from shared_configs.contextvars import CURRENT_TENANT_ID_CONTEXTVAR
 
+import os
+from dotenv import load_dotenv
+load_dotenv('../../.env')
+
 logger = setup_logger()
+
+logger.info(f"DOCUMENT_ENCODER_MODEL: {os.getenv('DOCUMENT_ENCODER_MODEL')}")
 
 file_handlers = [
     h for h in logger.logger.handlers if isinstance(h, logging.FileHandler)
