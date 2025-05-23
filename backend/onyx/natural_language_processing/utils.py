@@ -190,11 +190,35 @@ _DEFAULT_TOKENIZER_MODEL_NAME: str | None = None
 
 
 def get_tokenizer(
-    model_name: str,
-    provider_type: EmbeddingProvider | None = None,
+    model_name: str | None,
+    provider_type: EmbeddingProvider | str | None = None,
 ) -> BaseTokenizer:
     global _DEFAULT_TOKENIZER, _DEFAULT_TOKENIZER_MODEL_NAME
-
+    
+    # Check if we should use the simple cache-based approach (for local embeddings)
+    # LOCAL_EMBEDDINGS="true" means using OpenAI, so when it's false/not set, use local
+    use_local_embeddings = os.environ.get("LOCAL_EMBEDDINGS", "false").lower() != "true"
+    
+    if use_local_embeddings:
+        # Use the simpler logic from paste-2.txt
+        if isinstance(provider_type, str):
+            try:
+                provider_type = EmbeddingProvider(provider_type)
+            except ValueError:
+                logger.debug(
+                    f"Invalid provider_type '{provider_type}'. Falling back to default tokenizer."
+                )
+                # Initialize default tokenizer if not already done
+                if _DEFAULT_TOKENIZER is None:
+                    _DEFAULT_TOKENIZER = HuggingFaceTokenizer(DOCUMENT_ENCODER_MODEL)
+                return _DEFAULT_TOKENIZER
+        return _check_tokenizer_cache(provider_type, model_name)
+    
+    # Below is the logic from paste.txt for OpenAI embeddings
+    # Ensure model_name is not None for the OpenAI logic
+    if model_name is None:
+        model_name = DOCUMENT_ENCODER_MODEL
+    
     # 1. Explicit Provider Handling (Preferred)
     if provider_type == EmbeddingProvider.OPENAI:
         return OpenAITokenizer(model_name=model_name)
