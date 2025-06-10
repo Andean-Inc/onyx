@@ -54,7 +54,7 @@ MASK_CREDENTIALS_WHITELIST = {
 }
 
 
-def mask_credential_dict(credential_dict: dict[str, Any]) -> dict[str, str]:
+def mask_credential_dict(credential_dict: dict[str, Any]) -> dict[str, Any]:
     masked_creds = {}
     for key, val in credential_dict.items():
         if isinstance(val, str):
@@ -70,10 +70,31 @@ def mask_credential_dict(credential_dict: dict[str, Any]) -> dict[str, str]:
             masked_creds[key] = "*****"
             continue
 
-        raise ValueError(
-            f"Unable to mask credentials of type other than string or int, cannot process request."
-            f"Received type: {type(val)}"
-        )
+        if isinstance(val, list):
+            # For lists, mask each string element but preserve non-string elements
+            masked_list = []
+            for item in val:
+                if isinstance(item, str):
+                    masked_list.append(mask_string(item))
+                elif isinstance(item, (int, float, bool)):
+                    masked_list.append("*****")
+                else:
+                    # For other types (dict, list, etc.), represent as masked
+                    masked_list.append("*****")
+            masked_creds[key] = masked_list
+            continue
+
+        if isinstance(val, dict):
+            # Recursively mask dictionary values
+            masked_creds[key] = mask_credential_dict(val)
+            continue
+
+        if isinstance(val, (bool, float)):
+            masked_creds[key] = "*****"
+            continue
+
+        # For any other type we don't recognize, mask it as a string
+        masked_creds[key] = "*****"
 
     return masked_creds
 
