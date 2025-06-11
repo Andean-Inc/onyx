@@ -48,7 +48,20 @@ class TiktokenTokenizer(BaseTokenizer):
         if not hasattr(self, "encoder"):
             import tiktoken
 
-            self.encoder = tiktoken.encoding_for_model(model_name)
+            # Custom model mapping for tiktoken
+            custom_model_map = {
+                "gpt-4.1": "cl100k_base",
+                "gpt-4.1-mini": "cl100k_base",
+                "gpt-4o": "o200k_base",
+                "o1": "o200k_base",
+                "o1-mini": "o200k_base",
+            }
+
+            if model_name in custom_model_map:
+                encoding_name = custom_model_map[model_name]
+                self.encoder = tiktoken.get_encoding(encoding_name)
+            else:
+                self.encoder = tiktoken.encoding_for_model(model_name)
 
     def encode(self, string: str) -> list[int]:
         # this ignores special tokens that the model is trained on, see encode_ordinary for details
