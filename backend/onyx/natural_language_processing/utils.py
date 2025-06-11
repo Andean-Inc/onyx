@@ -208,12 +208,9 @@ def get_tokenizer(
 ) -> BaseTokenizer:
     global _DEFAULT_TOKENIZER, _DEFAULT_TOKENIZER_MODEL_NAME
     
-    # Check if we should use the simple cache-based approach (for local embeddings)
-    # LOCAL_EMBEDDINGS="true" means using OpenAI, so when it's false/not set, use local
-    use_local_embeddings = os.environ.get("LOCAL_EMBEDDINGS", "false").lower() != "true"
+    use_remote_embeddings = os.environ.get("REMOTE_EMBEDDINGS", "false").lower() == "true"
     
-    if use_local_embeddings:
-        # Use the simpler logic from paste-2.txt
+    if not use_remote_embeddings:
         if isinstance(provider_type, str):
             try:
                 provider_type = EmbeddingProvider(provider_type)
@@ -227,8 +224,8 @@ def get_tokenizer(
                 return _DEFAULT_TOKENIZER
         return _check_tokenizer_cache(provider_type, model_name)
     
-    # Below is the logic from paste.txt for OpenAI embeddings
-    # Ensure model_name is not None for the OpenAI logic
+    # Below is the logic for remote embeddings (OpenAI, etc.)
+    # Ensure model_name is not None for the remote embeddings logic
     if model_name is None:
         model_name = DOCUMENT_ENCODER_MODEL
     

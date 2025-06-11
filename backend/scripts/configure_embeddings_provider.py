@@ -10,7 +10,7 @@ load_dotenv('../../.env')
 
 DB_USER = "postgres"
 _DB_PASSWORD_RAW = "password"
-DB_HOST = "localhost"
+DB_HOST = "relational_db"
 DB_PORT = "5432"
 DB_NAME = "postgres"
 DB_PASSWORD = urllib.parse.quote_plus(_DB_PASSWORD_RAW)

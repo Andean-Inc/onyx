@@ -107,6 +107,7 @@ COPY ./static /app/static
 # Escape hatch scripts
 COPY ./scripts/debugging /app/scripts/debugging
 COPY ./scripts/force_delete_connector_by_id.py /app/scripts/force_delete_connector_by_id.py
+COPY ./scripts/configure_embeddings_provider.py /app/scripts/configure_embeddings_provider.py
 
 # Put logo in assets
 COPY ./assets /app/assets
