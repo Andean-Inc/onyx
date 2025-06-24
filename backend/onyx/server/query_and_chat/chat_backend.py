@@ -924,6 +924,106 @@ async def search_chats(
     )
 
 
+# Add new request model for manual user messages
+class ManualUserMessageRequest(BaseModel):
+    chat_session_id: UUID
+    message: str
+    parent_message_id: int | None = None
+
+
+class ManualUserMessageResponse(BaseModel):
+    message_id: int
+    status: str
+
+
+@router.post("/add-manual-user-message")
+def add_manual_user_message(
+    request: ManualUserMessageRequest,
+    user: User | None = Depends(current_chat_accessible_user),
+    db_session: Session = Depends(get_session),
+) -> ManualUserMessageResponse:
+    """
+    Add a pre-written user message to a chat session.
+    This is used for manually injecting user messages without triggering AI generation.
+    
+    Args:
+        request: Contains chat_session_id, message content, and optional parent_message_id
+        user: Current user (for permission checking)
+        db_session: Database session
+        
+    Returns:
+        Response with the created message ID
+    """
+    user_id = user.id if user is not None else None
+    
+    try:
+        # Verify user has access to the chat session
+        chat_session = get_chat_session_by_id(
+            chat_session_id=request.chat_session_id,
+            user_id=user_id,
+            db_session=db_session,
+        )
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Chat session not found or access denied")
+
+    # Get the parent message
+    if request.parent_message_id is not None:
+        try:
+            parent_message = get_chat_message(
+                chat_message_id=request.parent_message_id,
+                user_id=user_id,
+                db_session=db_session,
+            )
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Parent message not found")
+    else:
+        # Get the last message in the session or root message
+        session_messages = get_chat_messages_by_session(
+            chat_session_id=request.chat_session_id,
+            user_id=user_id,
+            db_session=db_session,
+            skip_permission_check=True,  # Already checked above
+        )
+        if session_messages:
+            parent_message = session_messages[-1]
+        else:
+            parent_message = get_or_create_root_message(
+                chat_session_id=request.chat_session_id,
+                db_session=db_session,
+            )
+
+    # Simple token count (you could use a proper tokenizer here)
+    token_count = len(request.message.split())
+
+    # Create the user message
+    user_message = create_new_chat_message(
+        chat_session_id=request.chat_session_id,
+        parent_message=parent_message,
+        message=request.message,
+        prompt_id=None,  # User messages don't need a prompt
+        token_count=token_count,
+        message_type=MessageType.USER,
+        db_session=db_session,
+        files=None,
+        rephrased_query=None,
+        error=None,
+        reference_docs=None,
+        alternate_assistant_id=None,
+        citations=None,
+        tool_call=None,
+        commit=True,
+        reserved_message_id=None,
+        overridden_model=None,
+        refined_answer_improvement=None,
+        is_agentic=False,
+    )
+
+    return ManualUserMessageResponse(
+        message_id=user_message.id,
+        status="success"
+    )
+
+
 # Add new request model for manual assistant messages
 class ManualAssistantMessageRequest(BaseModel):
     chat_session_id: UUID
